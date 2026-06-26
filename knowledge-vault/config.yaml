@@ -79,11 +79,14 @@ use_markitdown: true
 # 보안: API 키는 여기 적지 말고 환경변수(api_key_env)로!  (이 저장소는 공개)
 #   예) PowerShell:  setx KV_LLM_API_KEY "sk-...."   (새 터미널부터 적용)
 llm:
-  enabled: false
+  enabled: true
   provider: openai          # openai | ollama
-  base_url: ""              # 외부 엔드포인트 URL (예: https://.../v1)
-  model: ""                 # 서버가 기대하는 모델명
-  api_key_env: KV_LLM_API_KEY   # 키를 읽어올 환경변수 이름 (키 값 자체 아님)
+  # 내부 엔드포인트·모델·키는 공개 레포에 적지 않고 key.txt(.env 형식, gitignore됨)에서 읽음
+  #   key.txt:  LLM_ENDPOINT=...  LLM_MODEL=...  LLM_API_KEY=...  LLM_TIMEOUT_MS=...
+  api_key_file: key.txt
+  base_url: ""              # 비우면 key.txt 의 LLM_ENDPOINT 사용
+  model: ""                 # 비우면 key.txt 의 LLM_MODEL 사용
+  api_key_env: KV_LLM_API_KEY   # (선택) 키를 환경변수로 줄 때 그 이름
   timeout: 120
   # system: "너는 간결한 한국어 비서야."
 

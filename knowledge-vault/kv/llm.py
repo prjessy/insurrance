@@ -4,11 +4,15 @@
 실패하면 None 을 반환해 기존 'Claude 붙여넣기' 방식으로 fallback 한다.
 
 지원 provider:
-  - ollama  : 로컬/원격 Ollama  (POST {base_url}/api/generate)
-  - openai  : OpenAI 호환 API   (POST {base_url}/chat/completions) ← vLLM·LM Studio·사내 게이트웨이·OpenAI 등
+  - openai  : OpenAI 호환 API  (POST {base_url}/v1/chat/completions)
+              ← vLLM·LM Studio·사내 게이트웨이·OpenAI 등
+  - ollama  : 로컬/원격 Ollama (POST {base_url}/api/generate)
 
-보안: API 키는 절대 config/repo 에 저장하지 않는다.
-환경변수(기본 KV_LLM_API_KEY)에서만 읽는다.
+보안(공개 저장소!):
+  내부 엔드포인트·모델·API 키는 config/repo 에 적지 않는다.
+  llm.api_key_file 이 가리키는 .env 형식 파일(예: key.txt, .gitignore 처리)에서 읽는다.
+    LLM_ENDPOINT=...   LLM_MODEL=...   LLM_API_KEY=...   LLM_TIMEOUT_MS=...
+  키만 환경변수(api_key_env)로 줘도 된다.
 추가 패키지 불필요 — 표준 라이브러리(urllib)만 사용.
 """
 
@@ -18,25 +22,68 @@ import json
 import os
 import urllib.error
 import urllib.request
+from pathlib import Path
 
-from kv.config import load_config
+from kv.config import ROOT, load_config
 
 
 def _llm_cfg() -> dict:
     return load_config().get("llm", {}) or {}
 
 
+def _secrets() -> dict:
+    """api_key_file(.env 형식)을 파싱. 없으면 빈 dict."""
+    name = _llm_cfg().get("api_key_file")
+    if not name:
+        return {}
+    p = Path(name)
+    candidates = [p, ROOT.parent / name, ROOT / name]
+    for c in candidates:
+        try:
+            if c.is_file():
+                out: dict = {}
+                for line in c.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    out[k.strip()] = v.strip()
+                return out
+        except Exception:
+            continue
+    return {}
+
+
 def _provider() -> str:
-    return (_llm_cfg().get("provider") or "ollama").lower()
+    return (_llm_cfg().get("provider") or "openai").lower()
+
+
+def _base_url() -> str:
+    return (_secrets().get("LLM_ENDPOINT") or _llm_cfg().get("base_url") or "").strip()
+
+
+def _model() -> str:
+    return (_secrets().get("LLM_MODEL") or _llm_cfg().get("model") or "").strip()
+
+
+def _timeout() -> int:
+    ms = _secrets().get("LLM_TIMEOUT_MS")
+    if ms and str(ms).isdigit():
+        return max(5, int(ms) // 1000)
+    return int(_llm_cfg().get("timeout", 120))
 
 
 def _api_key() -> str:
     env_name = _llm_cfg().get("api_key_env", "KV_LLM_API_KEY")
-    return os.environ.get(env_name, "").strip()
+    return (os.environ.get(env_name) or _secrets().get("LLM_API_KEY") or "").strip()
 
 
 def llm_enabled() -> bool:
     return bool(_llm_cfg().get("enabled", False))
+
+
+def has_key() -> bool:
+    return bool(_api_key())
 
 
 def _chat_url(base: str) -> str:
@@ -52,14 +99,10 @@ def llm_available() -> bool:
     """설정 on + (provider별) 연결 가능 여부."""
     if not llm_enabled():
         return False
-    cfg = _llm_cfg()
     if _provider() == "openai":
-        # 키 필요 시 키가 있어야 사용 가능 (실 핑은 generate 에서)
-        if cfg.get("api_key_env") and not _api_key():
-            return False
-        return bool(cfg.get("base_url"))
+        return bool(_base_url()) and bool(_api_key())
     # ollama: 서버 핑
-    base = cfg.get("base_url", "http://localhost:11434").rstrip("/")
+    base = (_base_url() or "http://localhost:11434").rstrip("/")
     try:
         with urllib.request.urlopen(f"{base}/api/tags", timeout=2) as r:
             return r.status == 200
@@ -81,13 +124,12 @@ def generate(prompt: str, *, system: str | None = None) -> str | None:
     """LLM 으로 프롬프트 실행. 실패 시 None."""
     if not llm_enabled():
         return None
-    cfg = _llm_cfg()
-    model = cfg.get("model", "qwen2.5")
-    timeout = int(cfg.get("timeout", 120))
-    system = system or cfg.get("system")
+    model = _model()
+    timeout = _timeout()
+    system = system or _llm_cfg().get("system")
 
     if _provider() == "openai":
-        base = cfg.get("base_url", "").strip()
+        base = _base_url()
         if not base:
             return None
         messages = []
@@ -112,8 +154,8 @@ def generate(prompt: str, *, system: str | None = None) -> str | None:
             return None
 
     # ollama
-    base = cfg.get("base_url", "http://localhost:11434").rstrip("/")
-    payload: dict = {"model": model, "prompt": prompt, "stream": False}
+    base = (_base_url() or "http://localhost:11434").rstrip("/")
+    payload: dict = {"model": model or "qwen2.5", "prompt": prompt, "stream": False}
     if system:
         payload["system"] = system
     body = _post_json(f"{base}/api/generate", payload, {}, timeout)

@@ -29,3 +29,9 @@ knowledge-vault/vault/refined/
 # 음성 모델·미디어 대용량 (선택)
 *.bin
 
+# === 비밀/키 (절대 커밋 금지 — 공개 저장소) ===
+key.txt
+*.key
+secrets*.txt
+.env
+

@@ -160,25 +160,23 @@ def cmd_ask(args: argparse.Namespace) -> None:
 
 
 def cmd_llm(args: argparse.Namespace) -> None:
-    import os
+    from kv.llm import (
+        _base_url,
+        _model,
+        _provider,
+        generate,
+        has_key,
+        llm_available,
+        llm_enabled,
+    )
 
-    from kv.llm import _api_key, _llm_cfg, _provider, generate, llm_available, llm_enabled
-
-    cfg = _llm_cfg()
-    provider = _provider()
-    print(f"LLM: enabled={llm_enabled()}  provider={provider}  model={cfg.get('model') or '(미설정)'}")
-    print(f"  base_url={cfg.get('base_url') or '(미설정)'}")
-    if provider == "openai":
-        env_name = cfg.get("api_key_env", "KV_LLM_API_KEY")
-        has_key = bool(_api_key())
-        print(f"  api_key_env={env_name}  키설정됨={has_key}")
-        if not has_key:
-            print(f"  → 키 설정:  setx {env_name} \"<키>\"  후 새 터미널에서 실행")
+    print(f"LLM: enabled={llm_enabled()}  provider={_provider()}  model={_model() or '(미설정)'}")
+    print(f"  base_url={_base_url() or '(미설정)'}  키설정됨={has_key()}")
     if not llm_enabled():
         print("→ config.yaml 의 llm.enabled 를 true 로 바꾸세요.")
         return
     if not llm_available():
-        print("→ 연결 불가. base_url/키/서버 상태를 확인하세요.")
+        print("→ 연결 불가. base_url/키/서버 상태(key.txt)를 확인하세요.")
         return
     print("→ 설정 OK")
     if args.prompt:
